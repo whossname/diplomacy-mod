@@ -27,14 +27,15 @@ flowchart TD
     V --->|Obtain Cmdr| I
 
     %% Partnership Transitions
-    P -->|Lose last Cmdr <br> OR Swear Fealty| V
+    P --->|Lose last Cmdr <br> OR Swear Fealty| V
     
     %% Self-loop for replacing partnership
     P -->|Accept new partnership| P
 
     %% King Transitions
-    K -->|Loses last Vassal| I
-    K -->|Gifts last Cmdr to own Vassal| V
+    K --->|Loses last Vassal| I
+    K <-->|Gift/Recieve last Cmdr| V
+
 ```
 
 Summary of State Behavior
