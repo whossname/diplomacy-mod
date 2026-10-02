@@ -31,6 +31,10 @@ flowchart TD
     
     %% Self-loop for replacing partnership
     P -->|Accept new partnership| P
+
+    %% King Transitions
+    K -->|Loses last Vassal| I
+    K -->|Gifts last Cmdr to own Vassal| V
 ```
 
 Summary of State Behavior
@@ -45,3 +49,8 @@ King: Can have many vassals
 If you aren't a vassal and lose your last commander you are out of the game.
 
 If a King loses their last commander the King and all of their vassals are out of the game.
+
+If a King loses their last Vassal (the Vassal regains a Commander and becomes Independent again), the King reverts to Independent themselves — they're no longer ruling anyone.
+
+If a King gifts away their last Commander to one of their own Vassals, the relationship reverses instead of ending the game: the gifted Vassal becomes the new King (inheriting any other Vassals the old King had), and the old King becomes a Vassal of their former subject.
+

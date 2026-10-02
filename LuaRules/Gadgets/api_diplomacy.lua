@@ -99,15 +99,56 @@ local function HandleCommanderObtained(teamID)
         
         -- Remove from King's vassal list
         if oldKing and teamStates[oldKing] then
-            for i, v in ipairs(teamStates[oldKing].vassals) do
+            local kingData = teamStates[oldKing]
+            for i, v in ipairs(kingData.vassals) do
                 if v == teamID then
-                    table.remove(teamStates[oldKing].vassals, i)
+                    table.remove(kingData.vassals, i)
                     break
                 end
+            end
+
+            -- A King with no remaining vassals has no one left to rule over
+            if kingData.state == STATE_KING and #kingData.vassals == 0 then
+                kingData.state = STATE_INDEP
+                Spring.Echo("Team " .. oldKing .. " has lost their last Vassal and is now Independent!")
             end
         end
         Spring.Echo("Team " .. teamID .. " has obtained a Commander and is now Independent!")
     end
+end
+
+-- A King who gifts away their last Commander to one of their own Vassals
+-- doesn't lose the game: the relationship simply reverses. The gifted
+-- Vassal becomes the new King (inheriting the other Vassals), and the old
+-- King becomes their Vassal.
+local function ReverseKingVassalRoles(oldKingID, newKingID)
+    local oldData = teamStates[oldKingID]
+    local newData = teamStates[newKingID]
+
+    -- Remove the newKing from the oldKing's vassal list
+    for i, v in ipairs(oldData.vassals) do
+        if v == newKingID then
+            table.remove(oldData.vassals, i)
+            break
+        end
+    end
+
+    -- The new King inherits all remaining Vassals
+    newData.vassals = oldData.vassals
+    for _, v in ipairs(newData.vassals) do
+        teamStates[v].king = newKingID
+    end
+    oldData.vassals = {}
+
+    newData.state = STATE_KING
+    newData.king = nil
+
+    oldData.state = STATE_VASSAL
+    oldData.king = newKingID
+    table.insert(newData.vassals, oldKingID)
+
+    Spring.Echo("Team " .. oldKingID .. " gifted their last Commander to their Vassal, Team " .. newKingID ..
+        "! The roles have reversed: Team " .. newKingID .. " is now King.")
 end
 
 local function MakeVassal(kingID, vassalID)
@@ -176,15 +217,34 @@ end
 
 function gadget:UnitGiven(unitID, unitDefID, newTeam, oldTeam)
     if IsCommander(unitDefID) then
+        local rolesReversed = false
+
         if oldTeam ~= Spring.GetGaiaTeamID() then
             teamCommanders[oldTeam] = math.max(0, (teamCommanders[oldTeam] or 1) - 1)
             if teamCommanders[oldTeam] == 0 then
-                HandleLastCommanderLost(oldTeam)
+                local oldData = teamStates[oldTeam]
+                -- Special case: a King gifting their last Commander to one of
+                -- their own Vassals reverses the relationship instead of
+                -- eliminating the whole kingdom.
+                if oldData and oldData.state == STATE_KING then
+                    for _, v in ipairs(oldData.vassals) do
+                        if v == newTeam then
+                            rolesReversed = true
+                            break
+                        end
+                    end
+                end
+
+                if rolesReversed then
+                    ReverseKingVassalRoles(oldTeam, newTeam)
+                else
+                    HandleLastCommanderLost(oldTeam)
+                end
             end
         end
         if newTeam ~= Spring.GetGaiaTeamID() then
             teamCommanders[newTeam] = (teamCommanders[newTeam] or 0) + 1
-            if teamCommanders[newTeam] == 1 then
+            if teamCommanders[newTeam] == 1 and not rolesReversed then
                 HandleCommanderObtained(newTeam)
             end
         end
