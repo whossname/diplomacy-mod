@@ -1,0 +1,21 @@
+[game]
+{
+    gametype=Diplomacy Mod 1.0;
+    mapname=Shallow Straits v1.0.1;
+    myplayername=Tyson;
+    ishost=1;
+    [modoptions] { minimalsetup=1; }
+
+    [player0] { name=Tyson; team=0; }
+
+    [ai0] { name=Alice; shortname=BARb; version=stable; team=1; host=0; }
+    [ai1] { name=Bob;   shortname=BARb; version=stable; team=2; host=0; }
+
+    [team0] { teamleader=0; allyteam=0; side=Armada; }
+    [team1] { teamleader=0; allyteam=1; side=Cortex; }
+    [team2] { teamleader=0; allyteam=2; side=Armada; }
+
+    [allyteam0] { numallies=0; }
+    [allyteam1] { numallies=0; }
+    [allyteam2] { numallies=0; }
+}

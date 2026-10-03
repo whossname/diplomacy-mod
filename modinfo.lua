@@ -1,13 +1,12 @@
 local modinfo = {
     name = "Diplomacy Mod",
     shortname = "dipmod",
+    game = "Beyond All Reason",
+    shortgame = "BYAR",
     version = "1.0",
-    mutator = {
-        require = {
-            -- This tells the engine to load BAR first, then your code on top
-            "Beyond All Reason", 
-        },
+    modtype = 1,
+    depend = {
+        "BYAR",
     },
 }
 return modinfo
-
