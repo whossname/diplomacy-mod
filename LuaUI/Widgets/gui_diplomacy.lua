@@ -17,7 +17,7 @@ local uiState = "MAIN"          -- "MAIN" or "SELECT"
 local pendingAction = nil       -- "partner", "fealty", or "demand"
 local incomingProposals = {}    -- Stores proposals parsed from chat
 
-local panelX, panelY = 50, 500  
+local panelX, panelY = 0, 400  
 local panelW = 320
 local rowH = 30
 
@@ -37,7 +37,7 @@ local function TeamLabel(tID)
     if isAI then
         local _, aiName = Spring.GetAIInfo(tID)
         name = aiName
-    elif leader and leader >= 0 then
+    elseif leader and leader >= 0 then
         name = Spring.GetPlayerInfo(leader)
     end
     return (name and name ~= "" and name) or ("Team " .. tID)
