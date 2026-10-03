@@ -31,6 +31,26 @@ local bgRect = {x=0, y=0, w=0, h=0}
 --------------------------------------------------------------------------------
 -- Initialization & Chat Listener
 --------------------------------------------------------------------------------
+local function TeamLabel(tID)
+    local _, leader, _, isAI = Spring.GetTeamInfo(tID)
+    local name
+    if isAI then
+        local _, aiName = Spring.GetAIInfo(tID)
+        name = aiName
+    elif leader and leader >= 0 then
+        name = Spring.GetPlayerInfo(leader)
+    end
+    return (name and name ~= "" and name) or ("Team " .. tID)
+end
+
+function widget:TextCommand(command)
+    local name, args = command:match("^(%S+)%s*(.*)$")
+    if name == "diplomacy" or name == "diplo" then
+        Spring.SendLuaRulesMsg("/diplomacy " .. args)
+        return true
+    end
+end
+
 function widget:Initialize()
     local teams = Spring.GetTeamList()
     for _, tID in ipairs(teams) do
@@ -42,13 +62,13 @@ end
 
 function widget:AddConsoleLine(msg, priority)
     -- Listen to the private messages sent by the server to detect proposals
-    local tID = string.match(msg, "Team (%d+) secretly proposed a Partnership")
+    local tID = string.match(msg, "%(Team (%d+)%) secretly proposed a Partnership")
     if tID then incomingProposals[tonumber(tID)] = "Partnership"; return end
 
-    tID = string.match(msg, "Team (%d+) offers to swear fealty")
+    tID = string.match(msg, "%(Team (%d+)%) offers to swear fealty")
     if tID then incomingProposals[tonumber(tID)] = "Fealty Offer"; return end
 
-    tID = string.match(msg, "Team (%d+) demands you swear fealty")
+    tID = string.match(msg, "%(Team (%d+)%) demands you swear fealty")
     if tID then incomingProposals[tonumber(tID)] = "Fealty Demand"; return end
 end
 
@@ -64,7 +84,7 @@ local function AddButton(id, label, x, y, w, h, color, data)
 end
 
 function widget:DrawScreen()
-    if Spring.IsSpectator(Spring.GetMyPlayerID()) then return end
+    if Spring.GetSpectatingState() then return end
     clickables = {} -- Reset buttons every frame
 
     -- 1. Calculate dynamic background height
@@ -123,7 +143,7 @@ function widget:DrawScreen()
 
             for tID, pType in pairs(incomingProposals) do
                 gl.Color(1, 1, 1, 1)
-                gl.Text("Team " .. tID .. " (" .. pType .. ")", panelX + 10, currentY + 5, 11, "o")
+                gl.Text(TeamLabel(tID) .. " (" .. pType .. ")", panelX + 10, currentY + 5, 11, "o")
                 AddButton("accept", "Accept", panelX + 180, currentY, 60, 22, {0.2, 0.8, 0.2}, tID)
                 AddButton("decline", "Decline", panelX + 250, currentY, 60, 22, {0.8, 0.2, 0.2}, tID)
                 currentY = currentY - rowH
@@ -134,7 +154,7 @@ function widget:DrawScreen()
         -- List all eligible teams
         for _, tID in ipairs(otherTeams) do
             local r, g, b = Spring.GetTeamColor(tID)
-            AddButton("select_team", "Team " .. tID, panelX + 10, currentY, panelW - 20, 22, {r, g, b, 0.7}, tID)
+            AddButton("select_team", TeamLabel(tID), panelX + 10, currentY, panelW - 20, 22, {r, g, b, 0.7}, tID)
             currentY = currentY - rowH
         end
 
@@ -152,16 +172,16 @@ end
 
 function widget:MousePress(mx, my, button)
     if button ~= 1 then return false end
-    if Spring.IsSpectator(Spring.GetMyPlayerID()) then return false end
+    if Spring.GetSpectatingState() then return false end
 
     -- Check if the click hit any active buttons
     for _, btn in ipairs(clickables) do
         if IsInside(mx, my, btn.x, btn.y, btn.w, btn.h) then
             
             if btn.id == "info" then
-                Spring.SendCommands("say /diplomacy info")
+                Spring.SendLuaRulesMsg("/diplomacy info")
             elseif btn.id == "dissolve" then
-                Spring.SendCommands("say /diplomacy dissolve")
+                Spring.SendLuaRulesMsg("/diplomacy dissolve")
             elseif btn.id == "menu_partner" then
                 uiState = "SELECT"; pendingAction = "partner"
             elseif btn.id == "menu_fealty" then
@@ -171,13 +191,13 @@ function widget:MousePress(mx, my, button)
             elseif btn.id == "back" then
                 uiState = "MAIN"; pendingAction = nil
             elseif btn.id == "select_team" then
-                Spring.SendCommands("say /diplomacy " .. pendingAction .. " " .. btn.data)
+                Spring.SendLuaRulesMsg("/diplomacy " .. pendingAction .. " " .. btn.data)
                 uiState = "MAIN"; pendingAction = nil
             elseif btn.id == "accept" then
-                Spring.SendCommands("say /diplomacy accept " .. btn.data)
+                Spring.SendLuaRulesMsg("/diplomacy accept " .. btn.data)
                 incomingProposals[btn.data] = nil -- Clear from UI
             elseif btn.id == "decline" then
-                Spring.SendCommands("say /diplomacy decline " .. btn.data)
+                Spring.SendLuaRulesMsg("/diplomacy decline " .. btn.data)
                 incomingProposals[btn.data] = nil -- Clear from UI
             end
             

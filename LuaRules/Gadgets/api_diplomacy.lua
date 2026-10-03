@@ -25,6 +25,19 @@ local STATE_KING = "King"
 local STATE_VASSAL = "Vassal"
 local STATE_ELIM = "Eliminated"
 
+-- "Name (Team N)"; the "(Team N)" suffix is parsed by the UI widget, so keep it.
+local function TeamName(teamID)
+    local _, leader, _, isAI = Spring.GetTeamInfo(teamID)
+    local name
+    if isAI then
+        local _, aiName = Spring.GetAIInfo(teamID)
+        name = aiName
+    elif leader and leader >= 0 then
+        name = Spring.GetPlayerInfo(leader)
+    end
+    return (name and name ~= "" and name or "Unknown") .. " (Team " .. teamID .. ")"
+end
+
 --------------------------------------------------------------------------------
 -- Helper Functions
 --------------------------------------------------------------------------------
@@ -38,7 +51,7 @@ local function EliminateTeam(teamID)
     teamStates[teamID].state = STATE_ELIM
     Spring.KillTeam(teamID)
     Spring.SendMessageToPlayer(teamID, "You have been Eliminated!")
-    Spring.Echo("Team " .. teamID .. " has been eliminated from the game.")
+    Spring.Echo(TeamName(teamID) .. " has been eliminated from the game.")
 end
 
 local function GetAllyTeam(teamID)
@@ -72,10 +85,10 @@ local function HandleLastCommanderLost(teamID)
         teamStates[partnerID].partner = nil
         table.insert(teamStates[partnerID].vassals, teamID)
         
-        Spring.Echo("Partnership collapsed! Team " .. partnerID .. " is now King, and Team " .. teamID .. " is their Vassal.")
+        Spring.Echo("Partnership collapsed! " .. TeamName(partnerID) .. " is now King, and " .. TeamName(teamID) .. " is their Vassal.")
         
     elseif data.state == STATE_KING then
-        Spring.Echo("The King (Team " .. teamID .. ") has fallen! The Kingdom crumbles.")
+        Spring.Echo("The King " .. TeamName(teamID) .. " has fallen! The Kingdom crumbles.")
         local vassalsToKill = {}
         for _, v in ipairs(data.vassals) do
             table.insert(vassalsToKill, v)
@@ -110,10 +123,10 @@ local function HandleCommanderObtained(teamID)
             -- A King with no remaining vassals has no one left to rule over
             if kingData.state == STATE_KING and #kingData.vassals == 0 then
                 kingData.state = STATE_INDEP
-                Spring.Echo("Team " .. oldKing .. " has lost their last Vassal and is now Independent!")
+                Spring.Echo(TeamName(oldKing) .. " has lost their last Vassal and is now Independent!")
             end
         end
-        Spring.Echo("Team " .. teamID .. " has obtained a Commander and is now Independent!")
+        Spring.Echo(TeamName(teamID) .. " has obtained a Commander and is now Independent!")
     end
 end
 
@@ -147,8 +160,8 @@ local function ReverseKingVassalRoles(oldKingID, newKingID)
     oldData.king = newKingID
     table.insert(newData.vassals, oldKingID)
 
-    Spring.Echo("Team " .. oldKingID .. " gifted their last Commander to their Vassal, Team " .. newKingID ..
-        "! The roles have reversed: Team " .. newKingID .. " is now King.")
+    Spring.Echo(TeamName(oldKingID) .. " gifted their last Commander to their Vassal, " .. TeamName(newKingID) ..
+        "! The roles have reversed: " .. TeamName(newKingID) .. " is now King.")
 end
 
 local function MakeVassal(kingID, vassalID)
@@ -179,7 +192,7 @@ local function MakeVassal(kingID, vassalID)
         end
     end
     
-    Spring.Echo("Team " .. kingID .. " accepted Team " .. vassalID .. " as a Vassal and seized " .. transferredCount .. " Commander(s)!")
+    Spring.Echo(TeamName(kingID) .. " accepted " .. TeamName(vassalID) .. " as a Vassal and seized " .. transferredCount .. " Commander(s)!")
 end
 
 --------------------------------------------------------------------------------
@@ -272,7 +285,7 @@ function gadget:RecvChat(playerID, msg, text)
         end
 
         if action == "info" then
-            Spring.SendMessageToPlayer(playerID, "Your State: " .. teamStates[teamID].state .. " | Commanders: " .. teamCommanders[teamID])
+            Spring.SendMessageToPlayer(playerID, TeamName(teamID) .. " | State: " .. teamStates[teamID].state .. " | Commanders: " .. teamCommanders[teamID])
             
         elseif action == "dissolve" then
             if teamStates[teamID].state == STATE_PARTNER then
@@ -282,7 +295,7 @@ function gadget:RecvChat(playerID, msg, text)
                 teamStates[partner].state = STATE_INDEP
                 teamStates[partner].partner = nil
                 SetAlliance(teamID, partner, false)
-                Spring.Echo("Team " .. teamID .. " dissolved the partnership with Team " .. partner)
+                Spring.Echo(TeamName(teamID) .. " dissolved the partnership with " .. TeamName(partner))
             end
             
         elseif action == "partner" and targetTeam then
@@ -304,23 +317,23 @@ function gadget:RecvChat(playerID, msg, text)
                 teamStates[targetTeam].partner = teamID
                 SetAlliance(teamID, targetTeam, true)
                 pendingProposals[targetTeam]["partner"] = nil
-                Spring.Echo("Team " .. teamID .. " and Team " .. targetTeam .. " have formed a Partnership!")
+                Spring.Echo(TeamName(teamID) .. " and " .. TeamName(targetTeam) .. " have formed a Partnership!")
             else
                 pendingProposals[teamID]["partner"] = targetTeam
                 -- Send private messages instead of a global echo
-                Spring.SendMessageToTeam(teamID, "You secretly proposed a Partnership to Team " .. targetTeam)
-                Spring.SendMessageToTeam(targetTeam, "Team " .. teamID .. " secretly proposed a Partnership to you! Click 'Partner' to accept.")
+                Spring.SendMessageToTeam(teamID, "You secretly proposed a Partnership to " .. TeamName(targetTeam))
+                Spring.SendMessageToTeam(targetTeam, TeamName(teamID) .. " secretly proposed a Partnership to you! Click 'Partner' to accept.")
             end
 
         elseif action == "fealty" and targetTeam then
             pendingProposals[teamID]["fealty"] = targetTeam
-            Spring.SendMessageToTeam(teamID, "You secretly offered to swear fealty to Team " .. targetTeam)
-            Spring.SendMessageToTeam(targetTeam, "Team " .. teamID .. " offers to swear fealty to you! Click 'Accept' to vassalize them.")
+            Spring.SendMessageToTeam(teamID, "You secretly offered to swear fealty to " .. TeamName(targetTeam))
+            Spring.SendMessageToTeam(targetTeam, TeamName(teamID) .. " offers to swear fealty to you! Click 'Accept' to vassalize them.")
 
         elseif action == "demand" and targetTeam then
             pendingProposals[teamID]["demand"] = targetTeam
-            Spring.SendMessageToTeam(teamID, "You secretly demanded that Team " .. targetTeam .. " swear fealty to you.")
-            Spring.SendMessageToTeam(targetTeam, "Team " .. teamID .. " demands you swear fealty to them! Click 'Accept' to submit and become their Vassal.")
+            Spring.SendMessageToTeam(teamID, "You secretly demanded that " .. TeamName(targetTeam) .. " swear fealty to you.")
+            Spring.SendMessageToTeam(targetTeam, TeamName(teamID) .. " demands you swear fealty to them! Click 'Accept' to submit and become their Vassal.")
 
         elseif action == "accept" and targetTeam then
             if pendingProposals[targetTeam]["fealty"] == teamID then
@@ -337,4 +350,11 @@ function gadget:RecvChat(playerID, msg, text)
         return true -- Hide command from global chat
     end
     return false
+end
+
+-- Widgets forward "/diplomacy ..." commands here, since plain chat never reaches gadgets
+function gadget:RecvLuaMsg(msg, playerID)
+    if msg:sub(1, 10) == "/diplomacy" then
+        return gadget:RecvChat(playerID, msg, msg)
+    end
 end
