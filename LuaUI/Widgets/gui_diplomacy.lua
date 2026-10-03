@@ -127,6 +127,45 @@ end
 
 function widget:TextCommand(command)
     local name, args = command:match("^(%S+)%s*(.*)$")
+    -- Test hook: "/diplo seen <team>" counts that team's units the local client can see (unsynced GetTeamUnits respects LOS)
+    local seenTeam = name == "diplo" and args:match("^seen%s+(%d+)")
+    if seenTeam then
+        local t = tonumber(seenTeam)
+        local seen, drawn = Spring.GetTeamUnits(t) or {}, 0
+        for _, uID in ipairs(seen) do
+            if Spring.IsUnitVisible(uID, nil, true) or Spring.IsUnitIcon(uID) then drawn = drawn + 1 end
+        end
+        local st = seen[1] and Spring.GetUnitLosState(seen[1], Spring.GetMyAllyTeamID(), true)
+        Spring.Echo("[Diplomacy] client sees " .. #seen .. " units of team " .. t .. ", drawable=" .. drawn .. ", firstLosState=" .. tostring(st) .. ", fullview=" .. tostring(select(2, Spring.GetSpectatingState())))
+        return true
+    end
+
+    -- Test hook: "/diplo shareunit <team> <unitdefname>" shares one of my units of that type via the engine
+    local shTeam, shDef = args:match("^shareunit%s+(%d+)%s+(%S+)")
+    if name == "diplo" and shTeam then
+        local picked = {}
+        for _, uID in ipairs(Spring.GetTeamUnits(myTeamID)) do
+            if UnitDefs[Spring.GetUnitDefID(uID)].name == shDef then picked[1] = uID; break end
+        end
+        Spring.SelectUnitArray(picked)
+        Spring.ShareResources(tonumber(shTeam), "units")
+        Spring.Echo("[Diplomacy] shared " .. #picked .. " " .. shDef .. " with team " .. shTeam)
+        return true
+    end
+
+    -- Test hook: "/diplo sharecmdr <team>" shares one of my Commanders via the engine, like the player list's share button
+    local shareTeam = name == "diplo" and args:match("^sharecmdr%s+(%d+)")
+    if shareTeam then
+        local cmdrs = {}
+        for _, uID in ipairs(Spring.GetTeamUnits(myTeamID)) do
+            local ud = UnitDefs[Spring.GetUnitDefID(uID)]
+            if ud and (ud.customParams.iscommander or ud.customParams.commander) then cmdrs[1] = uID; break end
+        end
+        Spring.SelectUnitArray(cmdrs)
+        Spring.ShareResources(tonumber(shareTeam), "units")
+        Spring.Echo("[Diplomacy] shared " .. #cmdrs .. " commander with team " .. shareTeam)
+        return true
+    end
     if name == "diplomacy" or name == "diplo" then
         Spring.SendLuaRulesMsg("/diplomacy " .. args)
         return true

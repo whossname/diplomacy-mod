@@ -358,6 +358,9 @@ end
 --------------------------------------------------------------------------------
 -- Call-ins: Chat Commands for Diplomacy
 --------------------------------------------------------------------------------
+-- The vision/count/teams hooks reveal other teams' information, so they only exist in the UAT scenario
+local TEST_HOOKS = (Spring.GetModOptions() or {}).diplo_test_hooks == "1"
+
 local function HandleCommand(playerID, teamID, msg)
     if teamStates[teamID] == nil then return false end
 
@@ -372,6 +375,59 @@ local function HandleCommand(playerID, teamID, msg)
             local d = teamStates[teamID]
             Spring.SendMessageToPlayer(playerID, TeamName(teamID) .. " | State: " .. d.state .. " | Commanders: " .. teamCommanders[teamID]
                 .. " | Partner: " .. (d.partner or -1) .. " | King: " .. (d.king or -1) .. " | Vassals: " .. table.concat(d.vassals, ","))
+            return true
+        end
+
+        -- Test hook: "/diplomacy allied <team>" reports the alliance in both directions
+        if action == "allied" and targetTeam then
+            Spring.Echo("[Diplomacy] allied " .. teamID .. "<->" .. targetTeam .. ": "
+                .. tostring(Spring.AreTeamsAllied(teamID, targetTeam)) .. "/"
+                .. tostring(Spring.AreTeamsAllied(targetTeam, teamID)))
+            return true
+        end
+
+        -- Test hook: "/diplomacy vision <team>" counts the team's units that my ally team can see
+        if TEST_HOOKS and action == "vision" and targetTeam then
+            local myAlly, seen, total = GetAllyTeam(teamID), 0, 0
+            for _, uID in ipairs(Spring.GetTeamUnits(targetTeam)) do
+                total = total + 1
+                local st = Spring.GetUnitLosState(uID, myAlly, true)
+                if st and st % 2 == 1 then seen = seen + 1 end
+            end
+            Spring.Echo("[Diplomacy] vision " .. teamID .. "->" .. targetTeam .. ": " .. seen .. "/" .. total)
+            return true
+        end
+
+        -- Test hook: "/diplomacy count <team> <unitdefname>" reports how many of that unit the team owns
+        if TEST_HOOKS and action == "count" and targetTeam and words[4] then
+            local n = 0
+            for _, uID in ipairs(Spring.GetTeamUnits(targetTeam)) do
+                if UnitDefs[Spring.GetUnitDefID(uID)].name == words[4] then n = n + 1 end
+            end
+            Spring.Echo("[Diplomacy] count team " .. targetTeam .. " " .. words[4] .. ": " .. n)
+            return true
+        end
+
+        -- Test hook: "/diplomacy teams" lists every player's team/allyteam and each team's alliance with team 0
+        if TEST_HOOKS and action == "teams" then
+            for _, pid in ipairs(Spring.GetPlayerList()) do
+                local name, _, spec, tid, atid = Spring.GetPlayerInfo(pid, false)
+                Spring.Echo("[Diplomacy] player " .. pid .. " " .. name .. " spec=" .. tostring(spec) .. " team=" .. tostring(tid) .. " allyteam=" .. tostring(atid))
+            end
+            for _, tid in ipairs(Spring.GetTeamList()) do
+                Spring.Echo("[Diplomacy] team " .. tid .. " allyteam=" .. tostring(select(6, Spring.GetTeamInfo(tid, false)))
+                    .. " allied-to-0=" .. tostring(Spring.AreTeamsAllied(tid, 0)) .. "/" .. tostring(Spring.AreTeamsAllied(0, tid)))
+            end
+            return true
+        end
+
+        -- Test hook (cheats only): "/diplomacy spawn <unitdef>" gives the team a unit beside its start position
+        if action == "spawn" and words[3] then
+            if Spring.IsCheatingEnabled() then
+                local x, _, z = Spring.GetTeamStartPosition(tonumber(words[4]) or teamID)
+                local y = Spring.GetGroundHeight(x + 200, z)
+                Spring.CreateUnit(words[3], x + 200, y, z, 0, teamID)
+            end
             return true
         end
 

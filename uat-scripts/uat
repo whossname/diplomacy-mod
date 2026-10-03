@@ -14,20 +14,48 @@ expect() {
 
 echo "Start state"
 expect "team 0 independent" "State: Independent" 0 info
-expect "team 1 independent" "Alice.*State: Independent" 1 info
+expect "team 1 independent" "Team 1.*State: Independent" 1 info
 
-echo "Partnership"
-expect "1 proposes to 2 (AI sees its own msg only on its team; no output expected)" "^$" 1 partner 2
-expect "2 accepts"         "formed a Partnership"            2 partner 1
-expect "1 is in partnership" "State: Partnership"            1 info
-expect "1 dissolves"       "dissolved the partnership"       1 dissolve
-expect "1 independent again" "State: Independent"            1 info
+echo "Giving a unit to an enemy (cheats off; no alliances exist yet)"
+"$D/say" 0 spawn armsolar >/dev/null; "$D/say" --raw "/cheat 0" >/dev/null; sleep 1
+expect "I own the solar"  "count team 0 armsolar: 1"            --raw "/diplo count 0 armsolar"
+"$D/say" --raw "/diplo shareunit 2 armsolar" >/dev/null
+expect "Bob (an enemy) received it" "count team 2 armsolar: 1"  --raw "/diplo count 2 armsolar"
+"$D/say" --raw "/cheat 1" >/dev/null; sleep 1
+
+echo "Partnership: me (0) and Alice (1)"
+expect "0 proposes to 1"   "secretly proposed"               0 partner 1
+expect "1 accepts"         "formed a Partnership"            1 partner 0
+expect "0 is in partnership" "State: Partnership"            0 info
+expect "0 sees Alice's units" "vision 0->1: ([1-9][0-9]*)/\\1$" 0 vision 1
+expect "0 dissolves"       "dissolved the partnership"       0 dissolve
+expect "0 independent again" "State: Independent"            0 info
+expect "0 no longer sees Alice" "vision 0->1: 0/"              0 vision 1
 
 echo "Fealty: Alice offers to swear fealty to me"
 expect "1 offers fealty to 0" "offers to swear fealty"      1 fealty 0
 expect "0 accepts"         "State: King|accepted"            0 accept 1
-expect "1 is a vassal"     "diplomatic rights"               1 info
+expect "1 is a vassal"     "State: Vassal"                   1 info
+expect "0<->1 allied both ways" "allied 0<->1: true/true"    0 allied 1
+
+echo "Demand: I demand Bob (who has other units) swear fealty to me"
+for _ in 1 2 3; do "$D/say" 2 spawn armsolar >/dev/null; done
+expect "0 can't see Bob yet" "vision 0->2: 0/"                0 vision 2
+expect "0 demands"         "secretly demanded"               0 demand 2
+expect "2 accepts"         "accepted"                        2 accept 0
+sleep 3
+expect "2 is a vassal"     "State: Vassal"                   2 info
+expect "0<->2 allied both ways" "allied 0<->2: true/true"    0 allied 2
+expect "0 sees all of Bob's units" "vision 0->2: ([1-9][0-9]*)/\\1$" 0 vision 2
+expect "Bob sees my units"  "vision 2->0: ([1-9][0-9]*)/\\1$"   2 vision 0
+
+echo "Give back (cheats off, so the engine enforces the alliance check on transfers)"
+"$D/say" --raw "/cheat 0" >/dev/null; sleep 1
+expect "0 gives a Commander back to 2" "\\(Team 2\\).*obtained a Commander"  --raw "/diplo sharecmdr 2"
+"$D/say" --raw "/cheat 1" >/dev/null; sleep 1
+expect "0 and Bob not allied"  "allied 0<->2: false"            0 allied 2
 
 echo; echo "$PASS passed, $FAIL failed"
+"$D/logs" -a | grep -E "bitter end|taken out|is toast|sunset" && { FAIL=$((FAIL+1)); echo "  FAIL a team was killed by the engine"; }
 "$D/logs" | grep -E "Error in|Removed" && FAIL=$((FAIL+1))
 [ $FAIL = 0 ]

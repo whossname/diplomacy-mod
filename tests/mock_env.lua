@@ -36,8 +36,7 @@ local function createMockEnv(gadgetPath, opts)
     }
 
     local function allyKey(a, b)
-        if a > b then a, b = b, a end
-        return a .. "_" .. b
+        return a .. ">" .. b -- directional, like the real teamHandler
     end
 
     local Spring = {}
@@ -62,6 +61,13 @@ local function createMockEnv(gadgetPath, opts)
         env.allyState[allyKey(allyA, allyB)] = isAllied
         table.insert(env.calls.setAlly, { allyA, allyB, isAllied })
     end
+
+    function Spring.SetUnitLosMask(unitID, allyTeam, bits)
+        env.losMask[unitID .. ">" .. allyTeam] = bits ~= 0 and bits or nil
+    end
+    function Spring.SetUnitLosState() end
+    function Spring.GetUnitPosition() return nil end
+    function Spring.GetModOptions() return {} end
 
     function Spring.KillTeam(teamID)
         table.insert(env.calls.killTeam, teamID)
@@ -142,11 +148,12 @@ local function createMockEnv(gadgetPath, opts)
 
     env.gadget = gadget
     env.Spring = Spring
+    env.losMask = {}
     env.teams = teams
     env.GAIA = GAIA
 
     function env.isAllied(a, b)
-        return env.allyState[allyKey(a, b)] == true
+        return env.allyState[allyKey(a, b)] == true and env.allyState[allyKey(b, a)] == true
     end
 
     function env.spawnCommander(teamID)

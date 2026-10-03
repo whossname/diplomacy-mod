@@ -4,7 +4,7 @@
     mapname=Shallow Straits v1.0.1;
     myplayername=Tyson;
     ishost=1;
-    [modoptions] { minimalsetup=1; }
+    [modoptions] { minimalsetup=1; diplo_test_hooks=1; }
 
     [player0] { name=Tyson; team=0; }
 
