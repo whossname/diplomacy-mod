@@ -25,13 +25,26 @@ local STATE_KING = "King"
 local STATE_VASSAL = "Vassal"
 local STATE_ELIM = "Eliminated"
 
+-- BAR's game_team_com_ends kills a whole ally team when its last Commander
+-- leaves it, and a Vassal is still in its own ally team when MakeVassal seizes
+-- its Commander (SetAlly only allies, it can't merge ally teams). Vassals must
+-- survive that, so ignore KillTeam for them; EliminateTeam marks the team
+-- Eliminated first, so our own kills still go through. This gadget loads before
+-- the others, so they capture this wrapper.
+local origKillTeam = Spring.KillTeam
+Spring.KillTeam = function(teamID, ...)
+    local data = teamStates[teamID]
+    if data and data.state == STATE_VASSAL then return end
+    return origKillTeam(teamID, ...)
+end
+
 -- "Name (Team N)"; the "(Team N)" suffix is parsed by the UI widget, so keep it.
 local function TeamName(teamID)
     local _, leader, _, isAI = Spring.GetTeamInfo(teamID)
     local name
     if isAI then
         local _, aiName = Spring.GetAIInfo(teamID)
-        name = aiName
+        name = Spring.GetGameRulesParam('ainame_' .. teamID) or aiName -- the name BAR shows in the player list
     elseif leader and leader >= 0 then
         name = Spring.GetPlayerInfo(leader)
     end
@@ -59,9 +72,56 @@ local function GetAllyTeam(teamID)
     return allyTeamID
 end
 
+-- The engine only shares line of sight inside one ally team, never between allied
+-- ally teams, and a team can't be moved to another ally team from Lua. So allies see
+-- each other's units because we force their visibility state for the ally's ally team.
+local sharedVision = {} -- sharedVision[fromTeam][toTeam] = true
+local LOS_ALL = { los = true, radar = true, prevLos = true, contRadar = true }
+
+local function ShareUnitVision(unitID, toAllyTeam, on)
+    if not Spring.SetUnitLosMask then return end
+    if on then
+        Spring.SetUnitLosMask(unitID, toAllyTeam, LOS_ALL)
+        Spring.SetUnitLosState(unitID, toAllyTeam, LOS_ALL)
+    else
+        Spring.SetUnitLosMask(unitID, toAllyTeam, 0) -- hands visibility back to the engine
+        -- the engine only recomputes a unit's state when its los changes, so reset it from the map
+        local x, y, z = Spring.GetUnitPosition(unitID)
+        if x then
+            local state = {}
+            if Spring.IsPosInLos(x, y, z, toAllyTeam) then state.los = true end
+            if Spring.IsPosInRadar(x, y, z, toAllyTeam) then state.radar = true end
+            Spring.SetUnitLosState(unitID, toAllyTeam, state)
+        end
+    end
+end
+
+local function ShareTeamVision(fromTeam, toTeam, on)
+    local toAllyTeam = GetAllyTeam(toTeam)
+    for _, uID in ipairs(Spring.GetTeamUnits(fromTeam)) do
+        ShareUnitVision(uID, toAllyTeam, on)
+    end
+end
+
+local function ShareNewUnitVision(unitID, teamID)
+    for toTeam in pairs(sharedVision[teamID] or {}) do
+        ShareUnitVision(unitID, GetAllyTeam(toTeam), true)
+    end
+end
+
 local function SetAlliance(teamA, teamB, isAllied)
-    -- dynamically makes two teams friendly or hostile to each other
-    Spring.SetAlly(GetAllyTeam(teamA), GetAllyTeam(teamB), isAllied)
+    -- dynamically makes two teams friendly or hostile to each other.
+    -- Spring.SetAlly is one-directional, and unit transfers need both sides allied.
+    local allyA, allyB = GetAllyTeam(teamA), GetAllyTeam(teamB)
+    Spring.SetAlly(allyA, allyB, isAllied)
+    Spring.SetAlly(allyB, allyA, isAllied)
+
+    sharedVision[teamA] = sharedVision[teamA] or {}
+    sharedVision[teamB] = sharedVision[teamB] or {}
+    sharedVision[teamA][teamB] = isAllied or nil
+    sharedVision[teamB][teamA] = isAllied or nil
+    ShareTeamVision(teamA, teamB, isAllied)
+    ShareTeamVision(teamB, teamA, isAllied)
 end
 
 --------------------------------------------------------------------------------
@@ -112,6 +172,7 @@ local function HandleCommanderObtained(teamID)
         
         -- Remove from King's vassal list
         if oldKing and teamStates[oldKing] then
+            SetAlliance(teamID, oldKing, false)
             local kingData = teamStates[oldKing]
             for i, v in ipairs(kingData.vassals) do
                 if v == teamID then
@@ -231,9 +292,15 @@ end
 function gadget:GameFrame(n)
     if n == 1 then Spring.Echo("[Diplomacy] ready") end
     if n % 5 == 0 then PublishState() end
+    if n % 15 == 0 then -- catches units built or transferred since the last pass
+        for from, tos in pairs(sharedVision) do
+            for to in pairs(tos) do ShareTeamVision(from, to, true) end
+        end
+    end
 end
 
 function gadget:UnitCreated(unitID, unitDefID, teamID, builderID)
+    ShareNewUnitVision(unitID, teamID)
     if IsCommander(unitDefID) and teamID ~= Spring.GetGaiaTeamID() then
         teamCommanders[teamID] = (teamCommanders[teamID] or 0) + 1
         if teamCommanders[teamID] == 1 then
@@ -252,6 +319,7 @@ function gadget:UnitDestroyed(unitID, unitDefID, teamID, attackerID, attackerDef
 end
 
 function gadget:UnitGiven(unitID, unitDefID, newTeam, oldTeam)
+    ShareNewUnitVision(unitID, newTeam)
     if IsCommander(unitDefID) then
         local rolesReversed = false
 
