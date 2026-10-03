@@ -1,0 +1,40 @@
+#!/bin/bash
+# game start|stop|restart|reload
+#   start    launch (you + 2 BARb AIs from start.txt), wait until in-game, enable cheats
+#   stop     kill the game
+#   restart  stop + start (needed for gadget / new-file / modinfo changes)
+#   reload   hot-reload widgets (enough for LuaUI/ changes)
+. "$(dirname "$0")/common.sh"
+CFG="$BAR_DIR/uat-springsettings.cfg"   # copy of your settings, with the log flushed on every line
+
+stop() {
+  local pids; pids=$(pgrep -f "^$ENGINE")
+  [ -z "$pids" ] && { echo "not running"; return 0; }
+  kill $pids
+  for _ in $(seq 20); do pgrep -f "^$ENGINE" >/dev/null || { echo "stopped"; return 0; }; sleep 0.5; done
+  echo "still running" >&2; return 1
+}
+
+start() {
+  pgrep -f "^$ENGINE" >/dev/null && { echo "already running"; return 0; }
+  grep -v '^LogFlushLevel' "$BAR_DIR/springsettings.cfg" > "$CFG"; echo "LogFlushLevel = 0" >> "$CFG"
+  cd "$BAR_DIR"; rm -f "$INFOLOG"  # so the ready marker below is from this run
+  setsid "$ENGINE" --write-dir "$BAR_DIR" --config "$CFG" "${1:-$SCRIPTS_DIR/start.txt}" >/dev/null 2>&1 &
+  echo -n "starting"
+  for _ in $(seq 240); do
+    grep -q "\[Diplomacy\] ready" "$INFOLOG" 2>/dev/null && break
+    pgrep -f "^$ENGINE" >/dev/null || { echo " - game exited, see infolog.txt" >&2; return 1; }
+    echo -n .; sleep 1
+  done
+  echo " ready"
+  sleep 2
+  "$SCRIPTS_DIR/say" --raw "/cheat 1" >/dev/null
+}
+
+case "$1" in
+  start) shift; start "$@" ;;
+  stop) stop ;;
+  restart) stop && start ;;
+  reload) "$SCRIPTS_DIR/say" --raw "/luaui reload" ;;
+  *) sed -n 2,7p "$0"; exit 1 ;;
+esac

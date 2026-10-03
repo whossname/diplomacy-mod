@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Type a diplomacy command into the running game as any team.
+
+Usage: say N <command...>      e.g.  say 1 partner 2     (N = team number; 0 = you)
+       say --raw "<chat line>"
+Prints the diplomacy/error log lines the command produced.
+Needs python-xlib + wmctrl, and the game started with ./game start (cheats on).
+"""
+import os, subprocess, sys, time
+from Xlib import X, XK, display
+from Xlib.ext import xtest
+
+TITLE = "Diplomacy Mod"
+NAMES = {" ": "space", "/": "slash", "_": "underscore", "-": "minus", ".": "period",
+         ",": "comma", ":": "colon", "!": "exclam", "'": "apostrophe", '"': "quotedbl"}
+d = display.Display()
+
+def press(ch):
+    ks = XK.string_to_keysym(NAMES.get(ch, ch))
+    kc = d.keysym_to_keycode(ks)
+    if not kc:
+        raise SystemExit(f"no keycode for {ch!r}")
+    shift = d.keycode_to_keysym(kc, 0) != ks
+    sk = d.keysym_to_keycode(XK.XK_Shift_L)
+    if shift: xtest.fake_input(d, X.KeyPress, sk)
+    xtest.fake_input(d, X.KeyPress, kc); xtest.fake_input(d, X.KeyRelease, kc)
+    if shift: xtest.fake_input(d, X.KeyRelease, sk)
+    d.sync(); time.sleep(0.02)
+
+def send(text):
+    if subprocess.run(["wmctrl", "-a", TITLE]).returncode != 0:
+        raise SystemExit("game window not found (./game start)")
+    time.sleep(0.3)
+    press("Escape"); time.sleep(0.1)  # close widget selector / any open chat
+    press("Return"); time.sleep(0.1)
+    for ch in text: press(ch)
+    press("Return")
+
+def infolog():
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(here))), "infolog.txt")
+
+def main():
+    a = sys.argv[1:]
+    if a[:1] == ["--raw"] and len(a) > 1:
+        line = " ".join(a[1:])
+    elif len(a) >= 2 and a[0].isdigit():
+        line = f"/diplo as {a[0]} {' '.join(a[1:])}"
+    else:
+        raise SystemExit(__doc__)
+    path = infolog()
+    start = os.path.getsize(path)
+    send(line)
+    time.sleep(1)
+    with open(path, "rb") as f:
+        f.seek(start)
+        for l in f.read().decode(errors="replace").splitlines():
+            if any(k in l for k in ("[Diplomacy]", "Error", "Team ", "State:", "diplomatic", "secretly", "cheats")):
+                print(l.split("] ", 2)[-1] if l.startswith("[t=") else l)
+
+main()

@@ -50,6 +50,8 @@ local function createMockEnv(gadgetPath, opts)
         return teams
     end
 
+    function Spring.GetAIInfo() return nil, nil end
+
     function Spring.GetTeamInfo(teamID)
         -- Returns allyTeamID as the 6th value, matching the real API shape.
         -- One allyteam per team by default (typical FFA setup).

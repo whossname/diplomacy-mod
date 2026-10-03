@@ -1,0 +1,7 @@
+#!/bin/bash
+# logs [-f] [-a]   Lua errors + diplomacy lines from the infolog.  -f follow, -a everything.
+. "$(dirname "$0")/common.sh"
+PAT="\[Diplomacy\]|Error (in|:)|Removed (widget|gadget)|attempt to|Team [0-9]|Your State|State:"
+[ "$1" = -a ] || [ "$2" = -a ] && PAT="."
+if [ "$1" = -f ] || [ "$2" = -f ]; then tail -n 100 -F "$INFOLOG" | grep --line-buffered -E "$PAT"
+else grep -E "$PAT" "$INFOLOG" | grep -v "AdvSky\|_dead"; fi

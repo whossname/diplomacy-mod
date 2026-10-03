@@ -32,7 +32,7 @@ local function TeamName(teamID)
     if isAI then
         local _, aiName = Spring.GetAIInfo(teamID)
         name = aiName
-    elif leader and leader >= 0 then
+    elseif leader and leader >= 0 then
         name = Spring.GetPlayerInfo(leader)
     end
     return (name and name ~= "" and name or "Unknown") .. " (Team " .. teamID .. ")"
@@ -210,6 +210,10 @@ function gadget:Initialize()
     end
 end
 
+function gadget:GameFrame(n)
+    if n == 1 then Spring.Echo("[Diplomacy] ready") end
+end
+
 function gadget:UnitCreated(unitID, unitDefID, teamID, builderID)
     if IsCommander(unitDefID) and teamID ~= Spring.GetGaiaTeamID() then
         teamCommanders[teamID] = (teamCommanders[teamID] or 0) + 1
@@ -267,10 +271,9 @@ end
 --------------------------------------------------------------------------------
 -- Call-ins: Chat Commands for Diplomacy
 --------------------------------------------------------------------------------
-function gadget:RecvChat(playerID, msg, text)
-    local name, active, spectator, teamID = Spring.GetPlayerInfo(playerID)
-    if spectator or teamStates[teamID] == nil then return false end
-    
+local function HandleCommand(playerID, teamID, msg)
+    if teamStates[teamID] == nil then return false end
+
     local words = {}
     for word in msg:gmatch("%S+") do table.insert(words, word) end
     
@@ -352,9 +355,23 @@ function gadget:RecvChat(playerID, msg, text)
     return false
 end
 
--- Widgets forward "/diplomacy ..." commands here, since plain chat never reaches gadgets
+function gadget:RecvChat(playerID, msg, text)
+    local _, _, spectator, teamID = Spring.GetPlayerInfo(playerID)
+    if spectator then return false end
+    return HandleCommand(playerID, teamID, msg)
+end
+
+-- Widgets forward "/diplomacy ..." commands here, since plain chat never reaches gadgets.
+-- Test hook (cheats only): "/diplomacy as <teamID> <action> ..." acts as another team, e.g. an AI.
 function gadget:RecvLuaMsg(msg, playerID)
-    if msg:sub(1, 10) == "/diplomacy" then
-        return gadget:RecvChat(playerID, msg, msg)
+    if msg:sub(1, 10) ~= "/diplomacy" then return end
+    local asTeam, rest = msg:match("^/diplomacy%s+as%s+(%d+)%s+(.*)$")
+    if asTeam then
+        if not Spring.IsCheatingEnabled() then
+            Spring.SendMessageToPlayer(playerID, "'/diplomacy as' needs cheats (/cheat 1)")
+            return true
+        end
+        return HandleCommand(playerID, tonumber(asTeam), "/diplomacy " .. rest)
     end
+    return gadget:RecvChat(playerID, msg, msg)
 end
