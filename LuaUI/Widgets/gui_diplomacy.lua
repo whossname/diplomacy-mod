@@ -31,16 +31,98 @@ local bgRect = {x=0, y=0, w=0, h=0}
 --------------------------------------------------------------------------------
 -- Initialization & Chat Listener
 --------------------------------------------------------------------------------
+local COLORS = {
+    King        = {0.8, 0.6, 0.0},
+    Vassal      = {0.85, 0.15, 0.15},
+    Partnership = {0.2, 0.8, 0.2},
+    Independent = {0.25, 0.5, 1.0},
+}
+
+local function ColorCode(c)
+    return string.char(255, math.floor(c[1] * 255), math.floor(c[2] * 255), math.floor(c[3] * 255))
+end
+local WHITE = string.char(255, 255, 255, 255)
+
+local function Colored(text, state)
+    return ColorCode(COLORS[state]) .. text .. WHITE
+end
+
 local function TeamLabel(tID)
     local _, leader, _, isAI = Spring.GetTeamInfo(tID)
     local name
     if isAI then
-        local _, aiName = Spring.GetAIInfo(tID)
-        name = aiName
+        -- Match the name shown by the player list / enemies panel
+        name = Spring.GetGameRulesParam("ainame_" .. tID)
+        if not name or name == "" then
+            local _, aiName = Spring.GetAIInfo(tID)
+            name = aiName
+        end
+        if name and name ~= "" then name = name .. " (AI)" end
     elseif leader and leader >= 0 then
         name = Spring.GetPlayerInfo(leader)
     end
     return (name and name ~= "" and name) or ("Team " .. tID)
+end
+
+-- Fallback state parsed from "/diplomacy info" replies, used when the gadget
+-- hasn't published team rules params (e.g. widget reloaded mid-game)
+local info = {}
+local infoTimer, infoTries = 0, 0
+
+local function DipParam(tID, rulesKey, infoKey)
+    local v = Spring.GetTeamRulesParam(tID, rulesKey)
+    if v == nil and tID == myTeamID then v = info[infoKey] end
+    return v
+end
+
+local function GetDipState(tID)
+    return DipParam(tID, "dipState", "state") or "Independent"
+end
+
+function widget:Update(dt)
+    if Spring.GetTeamRulesParam(myTeamID, "dipState") ~= nil or infoTries >= 5 then return end
+    infoTimer = infoTimer - dt
+    if infoTimer <= 0 then
+        infoTimer = 2
+        infoTries = infoTries + 1
+        Spring.SendLuaRulesMsg("/diplomacy info")
+    end
+end
+
+local function IsTeamAlive(tID)
+    local _, _, isDead = Spring.GetTeamInfo(tID)
+    return not isDead and GetDipState(tID) ~= "Eliminated"
+end
+
+-- Teams that can be diplomatically targeted: alive and not a vassal
+local function BuildTargets()
+    local list = {}
+    for _, tID in ipairs(otherTeams) do
+        if IsTeamAlive(tID) and GetDipState(tID) ~= "Vassal" then
+            list[#list + 1] = tID
+        end
+    end
+    return list
+end
+
+local function StatusText()
+    local state = GetDipState(myTeamID)
+    if state == "Vassal" then
+        local king = DipParam(myTeamID, "dipKing", "king") or -1
+        return Colored("Vassal", "Vassal") .. " to " .. (king >= 0 and TeamLabel(king) or "?")
+    end
+    local cmdrs = (DipParam(myTeamID, "dipCmdrs", "cmdrs") or 0) .. " Cmdrs, "
+    if state == "King" then
+        local names = {}
+        for id in string.gmatch(DipParam(myTeamID, "dipVassals", "vassals") or "", "%d+") do
+            names[#names + 1] = TeamLabel(tonumber(id))
+        end
+        return cmdrs .. Colored("King", "King") .. " of " .. table.concat(names, ", ")
+    elseif state == "Partnership" then
+        local p = DipParam(myTeamID, "dipPartner", "partner") or -1
+        return cmdrs .. Colored("Partner", "Partnership") .. " with " .. (p >= 0 and TeamLabel(p) or "?")
+    end
+    return cmdrs .. Colored("Independent", "Independent")
 end
 
 function widget:TextCommand(command)
@@ -61,6 +143,16 @@ function widget:Initialize()
 end
 
 function widget:AddConsoleLine(msg, priority)
+    local st, cm, pa, ki, va = string.match(msg, "State: (%a+) | Commanders: (%d+) | Partner: (%-?%d+) | King: (%-?%d+) | Vassals: ([%d,]*)")
+    if st then
+        info = {state = st, cmdrs = tonumber(cm), partner = tonumber(pa), king = tonumber(ki), vassals = va}
+        return
+    end
+    if string.find(msg, "You do not have diplomatic rights", 1, true) then
+        info.state = "Vassal"
+        return
+    end
+
     -- Listen to the private messages sent by the server to detect proposals
     local tID = string.match(msg, "%(Team (%d+)%) secretly proposed a Partnership")
     if tID then incomingProposals[tonumber(tID)] = "Partnership"; return end
@@ -88,16 +180,25 @@ function widget:DrawScreen()
     clickables = {} -- Reset buttons every frame
 
     -- 1. Calculate dynamic background height
+    local state = GetDipState(myTeamID)
+    local showPartner = state == "Partnership" or state == "Independent"
+    local showFealty = showPartner
+    local showDemand = state ~= "Vassal"
+    local showDissolve = state == "Partnership"
+    local buttonCount = (showPartner and 1 or 0) + (showFealty and 1 or 0) + (showDemand and 1 or 0) + (showDissolve and 1 or 0)
+    local targets = BuildTargets()
+    if state == "Vassal" then incomingProposals = {} end
+
     local totalH = 40 
     if uiState == "MAIN" then
-        totalH = totalH + (5 * rowH) + 15
+        totalH = totalH + (buttonCount * rowH) + 5
         local propCount = 0
         for k, v in pairs(incomingProposals) do propCount = propCount + 1 end
         if propCount > 0 then
             totalH = totalH + 30 + (propCount * rowH)
         end
     elseif uiState == "SELECT" then
-        totalH = totalH + (#otherTeams * rowH) + rowH + 10
+        totalH = totalH + (#targets * rowH) + rowH + 10
     end
 
     bgRect = {x = panelX, y = panelY - totalH, w = panelW, h = totalH}
@@ -109,7 +210,7 @@ function widget:DrawScreen()
     -- 3. Draw Title
     gl.Color(1, 1, 1, 1)
     if uiState == "MAIN" then
-        gl.Text("Diplomacy Menu", panelX + 10, panelY - 20, 14, "o")
+        gl.Text(StatusText(), panelX + 10, panelY - 20, 14, "o")
     else
         gl.Text("Select Target Team", panelX + 10, panelY - 20, 14, "o")
     end
@@ -118,18 +219,22 @@ function widget:DrawScreen()
 
     -- 4. Draw Specific Screen
     if uiState == "MAIN" then
-        -- Top Buttons
-        AddButton("info", "My Status Info", panelX + 10, currentY, panelW/2 - 15, 22, {0.2, 0.6, 1})
-        AddButton("dissolve", "Dissolve Alliance", panelX + panelW/2 + 5, currentY, panelW/2 - 15, 22, {0.8, 0.2, 0.2})
-        currentY = currentY - (rowH + 10)
-
-        -- Action Buttons
-        AddButton("menu_partner", "Propose Partnership", panelX + 10, currentY, panelW - 20, 22, {0.2, 0.8, 0.2})
-        currentY = currentY - rowH
-        AddButton("menu_fealty", "Offer Fealty (Become Vassal)", panelX + 10, currentY, panelW - 20, 22, {0.8, 0.5, 0.1})
-        currentY = currentY - rowH
-        AddButton("menu_demand", "Demand Fealty (Become King)", panelX + 10, currentY, panelW - 20, 22, {0.8, 0.2, 0.6})
-        currentY = currentY - rowH
+        if showPartner then
+            AddButton("menu_partner", "Propose Partnership", panelX + 10, currentY, panelW - 20, 22, COLORS.Partnership)
+            currentY = currentY - rowH
+        end
+        if showFealty then
+            AddButton("menu_fealty", "Offer Fealty", panelX + 10, currentY, panelW - 20, 22, COLORS.Vassal)
+            currentY = currentY - rowH
+        end
+        if showDemand then
+            AddButton("menu_demand", "Demand Fealty", panelX + 10, currentY, panelW - 20, 22, COLORS.King)
+            currentY = currentY - rowH
+        end
+        if showDissolve then
+            AddButton("dissolve", "Dissolve Alliance", panelX + 10, currentY, panelW - 20, 22, COLORS.Independent)
+            currentY = currentY - rowH
+        end
 
         -- Incoming Proposals (Only drawn if they exist)
         local hasProps = false
@@ -152,7 +257,7 @@ function widget:DrawScreen()
 
     elseif uiState == "SELECT" then
         -- List all eligible teams
-        for _, tID in ipairs(otherTeams) do
+        for _, tID in ipairs(targets) do
             local r, g, b = Spring.GetTeamColor(tID)
             AddButton("select_team", TeamLabel(tID), panelX + 10, currentY, panelW - 20, 22, {r, g, b, 0.7}, tID)
             currentY = currentY - rowH
@@ -178,9 +283,7 @@ function widget:MousePress(mx, my, button)
     for _, btn in ipairs(clickables) do
         if IsInside(mx, my, btn.x, btn.y, btn.w, btn.h) then
             
-            if btn.id == "info" then
-                Spring.SendLuaRulesMsg("/diplomacy info")
-            elseif btn.id == "dissolve" then
+            if btn.id == "dissolve" then
                 Spring.SendLuaRulesMsg("/diplomacy dissolve")
             elseif btn.id == "menu_partner" then
                 uiState = "SELECT"; pendingAction = "partner"

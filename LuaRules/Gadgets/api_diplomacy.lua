@@ -210,8 +210,27 @@ function gadget:Initialize()
     end
 end
 
+-- Publish each team's diplomatic state so the UI widget can read it
+local publishedKeys = {}
+local function PublishState()
+    local pub = {public = true}
+    for t, d in pairs(teamStates) do
+        local vassals = table.concat(d.vassals, ",")
+        local key = table.concat({d.state, d.partner or -1, d.king or -1, vassals, teamCommanders[t] or 0}, "|")
+        if publishedKeys[t] ~= key then
+            publishedKeys[t] = key
+            Spring.SetTeamRulesParam(t, "dipState", d.state, pub)
+            Spring.SetTeamRulesParam(t, "dipPartner", d.partner or -1, pub)
+            Spring.SetTeamRulesParam(t, "dipKing", d.king or -1, pub)
+            Spring.SetTeamRulesParam(t, "dipVassals", vassals, pub)
+            Spring.SetTeamRulesParam(t, "dipCmdrs", teamCommanders[t] or 0, pub)
+        end
+    end
+end
+
 function gadget:GameFrame(n)
     if n == 1 then Spring.Echo("[Diplomacy] ready") end
+    if n % 5 == 0 then PublishState() end
 end
 
 function gadget:UnitCreated(unitID, unitDefID, teamID, builderID)
@@ -281,16 +300,20 @@ local function HandleCommand(playerID, teamID, msg)
         local action = words[2]
         local targetTeam = tonumber(words[3])
         
+        if action == "info" then
+            local d = teamStates[teamID]
+            Spring.SendMessageToPlayer(playerID, TeamName(teamID) .. " | State: " .. d.state .. " | Commanders: " .. teamCommanders[teamID]
+                .. " | Partner: " .. (d.partner or -1) .. " | King: " .. (d.king or -1) .. " | Vassals: " .. table.concat(d.vassals, ","))
+            return true
+        end
+
         -- Prevent actions if Eliminated or a Vassal (Vassals have no diplomatic rights)
         if teamStates[teamID].state == STATE_ELIM or teamStates[teamID].state == STATE_VASSAL then
             Spring.SendMessageToPlayer(playerID, "You do not have diplomatic rights.")
             return true
         end
 
-        if action == "info" then
-            Spring.SendMessageToPlayer(playerID, TeamName(teamID) .. " | State: " .. teamStates[teamID].state .. " | Commanders: " .. teamCommanders[teamID])
-            
-        elseif action == "dissolve" then
+        if action == "dissolve" then
             if teamStates[teamID].state == STATE_PARTNER then
                 local partner = teamStates[teamID].partner
                 teamStates[teamID].state = STATE_INDEP
