@@ -17,7 +17,7 @@ local uiState = "MAIN"          -- "MAIN" or "SELECT"
 local pendingAction = nil       -- "partner", "fealty", or "demand"
 local incomingProposals = {}    -- Stores proposals parsed from chat
 
-local panelX, panelY = 0, 400  
+local panelX, panelY = 0, 650  
 local panelW = 320
 local rowH = 30
 
