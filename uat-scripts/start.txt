@@ -1,7 +1,7 @@
 [game]
 {
     gametype=Diplomacy Mod 1.0;
-    mapname=Shallow Straits v1.0.1;
+    mapname=Throne_V8;
     myplayername=Tyson;
     ishost=1;
     [modoptions] { minimalsetup=1; diplo_test_hooks=1; }
